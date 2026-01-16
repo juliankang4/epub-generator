@@ -1,0 +1,9 @@
+pypdf
+python-docx
+gethwp
+pyhwp
+ebooklib
+lxml
+markdown
+pywebview
+pyinstaller
