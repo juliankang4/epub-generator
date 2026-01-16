@@ -95,3 +95,4 @@ venv.bak/
 
 # Application specific
 *.log
+*.epub

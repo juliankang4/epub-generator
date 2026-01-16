@@ -102,16 +102,23 @@ class EpubGuiApp:
 
     def generate_epub(self, input_file, output_file, title, author):
         try:
-            with open(input_file, "r", encoding="utf-8") as f:
-                raw_text = f.read()
+            # FIX: Use EpubGenerator to extract text instead of direct open
+            # with open(input_file, "r", encoding="utf-8") as f:
+            #     raw_text = f.read()
 
             gen = EpubGenerator(title, author)
+            raw_text = gen.extract_text(input_file)
+            
+            if raw_text.startswith("Error") or not raw_text.strip():
+                raise Exception(f"Failed to extract text: {raw_text[:100]}...")
+
             gen.process_text(raw_text)
             gen.generate(output_file)
             
             self.root.after(0, lambda: self.finish_generation(True, output_file))
         except Exception as e:
             self.root.after(0, lambda: self.finish_generation(False, str(e)))
+
 
     def finish_generation(self, success, message):
         self.progress.stop()

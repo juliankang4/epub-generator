@@ -1,19 +1,25 @@
 import os
 import re
+import sys
 from ebooklib import epub
-
-# Additional imports for multiple formats
-try:
-    from pypdf import PdfReader
-    import docx
-    import gethwp
-except ImportError:
-    pass
+from text_extractor import TextExtractor
 
 class EpubGenerator:
+    # Pre-compile regex for performance
+    # Supports:
+    # - # Chapter 1
+    # - 제 1 화
+    # - 제1장
+    # - Chapter 1
+    # - Episode 1
+    CHAPTER_PATTERN = re.compile(
+        r"^((?:#\s+|제\s*\d+\s*[화장]\s*|Chapter\s*\d+\s*|Episode\s*\d+\s*).*$)",
+        flags=re.MULTILINE | re.IGNORECASE
+    )
+
     def __init__(self, title, author="Unknown"):
         self.book = epub.EpubBook()
-        self.book.set_identifier("novel-id-123456")
+        self.book.set_identifier(f"novel-{abs(hash(title))}")
         self.book.set_title(title)
         self.book.set_language("ko")
         self.book.add_author(author)
@@ -34,82 +40,15 @@ class EpubGenerator:
         """
 
     def extract_text(self, file_path):
-        ext = os.path.splitext(file_path)[1].lower()
-        
-        if ext == ".txt":
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                return f.read()
-        
-        elif ext == ".pdf":
-            reader = PdfReader(file_path)
-            text = ""
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
-            return text
-            
-        elif ext == ".docx":
-            doc = docx.Document(file_path)
-            return "\n".join([para.text for para in doc.paragraphs])
-            
-        elif ext == ".hwp":
-            try:
-                from hwp5.hwp5txt import TextTransform
-                from hwp5.xmlmodel import Hwp5File
-                from contextlib import closing
-                import io
-                
-                text_transform = TextTransform()
-                transform = text_transform.transform_hwp5_to_text
-                # hwp5txt writes bytes to the output stream
-                output = io.BytesIO()
-                with closing(Hwp5File(file_path)) as hwp5file:
-                    transform(hwp5file, output)
-                return output.getvalue().decode("utf-8", errors="ignore")
-            except Exception as e:
-                return f"Error extracting HWP: {str(e)}"
-                
-        elif ext == ".hwpx":
-            try:
-                # First try pyhwp's hwp5txt logic (it might support HWPX if it's treated as Hwp5File)
-                # But HWPX is typically just a zip of XMLs.
-                import zipfile
-                from xml.etree import ElementTree
-                
-                if not zipfile.is_zipfile(file_path):
-                    return "Error: .hwpx file is not a valid zip archive."
-                    
-                with zipfile.ZipFile(file_path, 'r') as z:
-                    content_files = [f for f in z.namelist() if f.startswith('Contents/section')]
-                    full_text = []
-                    for cf in sorted(content_files):
-                        with z.open(cf) as f:
-                            tree = ElementTree.parse(f)
-                            # Extract text from p nodes which are typically for paragraphs
-                            # In HWPX, text is often in <hp:t> or similar
-                            for node in tree.iter():
-                                if node.tag.endswith('}t') and node.text:
-                                    full_text.append(node.text)
-                                elif node.tag.endswith('}p'):
-                                    full_text.append("\n") # Paragraph break
-                    return "".join(full_text)
-            except Exception as e:
-                return f"Error extracting HWPX: {str(e)}"
-                
-        elif ext == ".doc":
-            return "Legacy .doc format is not directly supported. Please save as .docx or .txt."
-            
-        return ""
+        """Delegates to TextExtractor"""
+        return TextExtractor.extract(file_path)
 
     def process_text(self, raw_text):
         # Normalize line endings
         raw_text = raw_text.replace("\r\n", "\n")
         
-        # Split into chapters
-        # Look for "# [Chapter Name]" or "제 N 화 [제목]" or "Chapter N"
-        # Using a non-capturing group for the prefix, but capturing the whole line
-        chapter_pattern = r"^((?:#\s+|제\s*\d+\s*[화장]\s*|Chapter\s*\d+\s*).*$)"
-        
-        parts = re.split(chapter_pattern, raw_text, flags=re.MULTILINE)
+        # Split into chapters using pre-compiled regex
+        parts = self.CHAPTER_PATTERN.split(raw_text)
         
         if len(parts) <= 1:
             # No chapters found, treat as one
@@ -194,7 +133,11 @@ if __name__ == "__main__":
     
     if os.path.exists(args.input):
         gen = EpubGenerator(args.title, args.author)
-        raw_text = gen.extract_text(args.input)
+        try:
+            raw_text = gen.extract_text(args.input)
+        except Exception as e:
+            print(f"Extraction failed: {str(e)}")
+            sys.exit(1)
         
         if not raw_text.strip():
             print(f"Error: No text extracted from {args.input}")
