@@ -1,35 +1,49 @@
 import os
 import re
 import sys
+import uuid
 from ebooklib import epub
-from text_extractor import TextExtractor
+from text_extractor import TextExtractor, ExtractionError
 
 class EpubGenerator:
     # Pre-compile regex for performance
-    # Supports:
-    # - # Chapter 1
-    # - 제 1 화
-    # - 제1장
-    # - Chapter 1
-    # - Episode 1
+    # Supports various chapter patterns:
+    # - # Chapter 1, ## 제목
+    # - 제1화, 제 1 화, 제1장, 제 1 장
+    # - 1화, 1장 (숫자로 시작)
+    # - Chapter 1, CHAPTER 1
+    # - Episode 1, EP.1, ep 1
+    # - 프롤로그, 에필로그
+    # - Part 1, PART 1
     CHAPTER_PATTERN = re.compile(
-        r"^((?:#\s+|제\s*\d+\s*[화장]\s*|Chapter\s*\d+\s*|Episode\s*\d+\s*).*$)",
+        r"^("
+        r"(?:#+ .+)|"                                    # Markdown headers
+        r"(?:제\s*\d+\s*[화장편부](?:\s*.+)?)|"           # 제1화, 제 1 장, 제1부
+        r"(?:\d+\s*[화장편부](?:\s*.+)?)|"               # 1화, 1장
+        r"(?:Chapter\s*\d+(?:\s*.+)?)|"                  # Chapter 1
+        r"(?:Episode\s*\d+(?:\s*.+)?)|"                  # Episode 1
+        r"(?:EP\.?\s*\d+(?:\s*.+)?)|"                    # EP.1, EP 1
+        r"(?:Part\s*\d+(?:\s*.+)?)|"                     # Part 1
+        r"(?:프롤로그|에필로그|서장|종장|막간)(?:\s*.+)?" # Korean chapter markers
+        r")$",
         flags=re.MULTILINE | re.IGNORECASE
     )
 
     def __init__(self, title, author="Unknown"):
         self.book = epub.EpubBook()
-        self.book.set_identifier(f"novel-{abs(hash(title))}")
+        # UUID 사용으로 고유 식별자 보장
+        self.book.set_identifier(f"urn:uuid:{uuid.uuid4()}")
         self.book.set_title(title)
         self.book.set_language("ko")
         self.book.add_author(author)
         
         self.chapters = []
+        # 다양한 EPUB 리더 호환을 위한 폰트 폴백 체인
         self.style = """
             @namespace epub "http://www.idpf.org/2007/ops";
-            body { 
-                font-family: "Noto Sans KR", serif; 
-                line-height: 1.8; 
+            body {
+                font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif;
+                line-height: 1.8;
                 padding: 5% 10%;
                 text-align: justify;
             }

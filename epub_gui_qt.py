@@ -1,25 +1,14 @@
 import sys
 import os
 import threading
-import datetime
 
-# Logging setup for debugging
-def log_error(msg):
-    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-    log_path = os.path.join(desktop, "epub_generator_debug.log")
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(f"[{datetime.datetime.now()}] {msg}\n")
-
-try:
-    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                                 QHBoxLayout, QPushButton, QLabel, QLineEdit, 
-                                 QFileDialog, QMessageBox, QProgressBar)
-    from PyQt6.QtCore import Qt, pyqtSignal, QObject, QMimeData
-    from PyQt6.QtGui import QFont, QIcon, QDragEnterEvent, QDropEvent
-    from epub_gen import EpubGenerator
-except Exception as e:
-    log_error(f"Import error: {str(e)}")
-    sys.exit(1)
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QLabel, QLineEdit,
+                             QFileDialog, QMessageBox, QProgressBar)
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QMimeData
+from PyQt6.QtGui import QFont, QIcon, QDragEnterEvent, QDropEvent
+from epub_gen import EpubGenerator
+from text_extractor import ExtractionError, MissingLibraryError
 
 def check_mac_permissions():
     """
@@ -58,9 +47,9 @@ def check_mac_permissions():
                 end if
                 '''
                 subprocess.run(["osascript", "-e", script])
-                sys.exit(0) # Restart required
-    except Exception as e:
-        log_error(f"Permission check failed: {e}")
+                sys.exit(0)  # Restart required
+    except Exception:
+        pass  # Permission check failed, continue anyway
 
 class WorkerSignals(QObject):
     finished = pyqtSignal(bool, str)
@@ -284,26 +273,29 @@ class EpubGuiQt(QMainWindow):
 
     def run_logic(self, input_path, output_path, title, author):
         try:
-            # FIX: Do not open file here directly. Use EpubGenerator to handle different formats.
-            # with open(input_path, "r", encoding="utf-8") as f:
-            #    content = f.read()
-            
             gen = EpubGenerator(title, author)
-            
+
             # Step 1: Extract Text
             content = gen.extract_text(input_path)
-            
-            # Check if extraction returned an error message (starting with "Error") or empty
-            if content.startswith("Error") or not content.strip():
-                raise Exception(f"Failed to extract text: {content[:100]}...")
+
+            if not content or not content.strip():
+                raise ExtractionError("텍스트를 추출하지 못했습니다. 파일이 비어있거나 지원하지 않는 형식입니다.")
 
             # Step 2: Process & Generate
             gen.process_text(content)
             gen.generate(output_path)
-            
+
             self.signals.finished.emit(True, output_path)
+        except MissingLibraryError as e:
+            self.signals.finished.emit(False, f"필요한 라이브러리 없음: {str(e)}")
+        except ExtractionError as e:
+            self.signals.finished.emit(False, f"파일 읽기 오류: {str(e)}")
+        except FileNotFoundError:
+            self.signals.finished.emit(False, "파일을 찾을 수 없습니다.")
+        except PermissionError:
+            self.signals.finished.emit(False, "파일 접근 권한이 없습니다.")
         except Exception as e:
-            self.signals.finished.emit(False, str(e))
+            self.signals.finished.emit(False, f"예상치 못한 오류: {str(e)}")
 
     def on_finished(self, success, result):
         self.run_btn.setEnabled(True)
@@ -316,17 +308,7 @@ class EpubGuiQt(QMainWindow):
             QMessageBox.critical(self, "오류", f"변환 중 오류가 발생했습니다:\n{result}")
 
 if __name__ == "__main__":
-    try:
-        log_error("--- New Execution ---")
-        log_error("Starting application...")
-        app = QApplication(sys.argv)
-        log_error("QApplication created.")
-        window = EpubGuiQt()
-        log_error("Window object created.")
-        window.show()
-        log_error("window.show() called.")
-        sys.exit(app.exec())
-    except Exception as e:
-        log_error(f"Runtime error: {str(e)}")
-        import traceback
-        log_error(traceback.format_exc())
+    app = QApplication(sys.argv)
+    window = EpubGuiQt()
+    window.show()
+    sys.exit(app.exec())

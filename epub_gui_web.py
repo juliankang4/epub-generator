@@ -4,6 +4,7 @@ import webview
 import threading
 import json
 from epub_gen import EpubGenerator
+from text_extractor import ExtractionError, MissingLibraryError
 
 # HTML/CSS/JS for the UI
 HTML_CONTENT = """
@@ -97,23 +98,27 @@ HTML_CONTENT = """
         }
         .progress-bar {
             width: 100%;
-            height: 4px;
-            background: #f5f5f7;
-            border-radius: 2px;
+            height: 6px;
+            background: #e5e5ea;
+            border-radius: 3px;
             margin-top: 15px;
             overflow: hidden;
             display: none;
         }
         .progress-bar-fill {
             height: 100%;
-            background: #0071e3;
+            background: linear-gradient(90deg, #0071e3, #34c759);
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 3px;
+        }
+        .progress-bar-fill.indeterminate {
             width: 30%;
             animation: loading 1.5s infinite ease-in-out;
         }
         @keyframes loading {
-            0% { transform: translateX(-100%); width: 30%; }
-            50% { width: 50%; }
-            100% { transform: translateX(400%); width: 30%; }
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
         }
         .error { color: #ff3b30; }
         .success { color: #34c759; }
@@ -165,16 +170,28 @@ HTML_CONTENT = """
             }
 
             document.getElementById('generate-btn').disabled = true;
-            document.getElementById('progress').style.display = 'block';
-            updateStatus('변환 중... 잠시만 기다려 주세요.');
+            const progressBar = document.getElementById('progress');
+            const progressFill = document.querySelector('.progress-bar-fill');
+            progressBar.style.display = 'block';
+            progressFill.classList.add('indeterminate');
+            progressFill.style.width = '30%';
+            updateStatus('파일을 읽는 중...');
 
             pywebview.api.generate(path, title, author).then(result => {
                 document.getElementById('generate-btn').disabled = false;
-                document.getElementById('progress').style.display = 'none';
+                progressFill.classList.remove('indeterminate');
+
                 if (result.success) {
+                    progressFill.style.width = '100%';
                     updateStatus('성공적으로 생성되었습니다!', 'success');
+                    setTimeout(() => {
+                        progressBar.style.display = 'none';
+                        progressFill.style.width = '0%';
+                    }, 2000);
                 } else {
-                    updateStatus('오류: ' + result.error, 'error');
+                    progressBar.style.display = 'none';
+                    progressFill.style.width = '0%';
+                    updateStatus(result.error, 'error');
                 }
             });
         }
@@ -210,19 +227,27 @@ class API:
             # Ask location to save
             save_path = window.create_file_dialog(webview.SAVE_DIALOG, directory='', save_filename=f"{title}.epub")
             if not save_path:
-                return {'success': False, 'error': '취소되었습니다.'}
+                return {'success': False, 'error': '저장이 취소되었습니다.'}
 
-            gen = EpubGenerator(title, author)
+            gen = EpubGenerator(title or "제목 없음", author or "작가 미상")
             content = gen.extract_text(input_path)
-            
-            if not content.strip():
-                return {'success': False, 'error': '텍스트를 추출하지 못했습니다.'}
+
+            if not content or not content.strip():
+                return {'success': False, 'error': '텍스트를 추출하지 못했습니다. 파일이 비어있거나 지원하지 않는 형식입니다.'}
 
             gen.process_text(content)
             gen.generate(save_path)
             return {'success': True}
+        except MissingLibraryError as e:
+            return {'success': False, 'error': f'필요한 라이브러리 없음: {str(e)}'}
+        except ExtractionError as e:
+            return {'success': False, 'error': f'파일 읽기 오류: {str(e)}'}
+        except FileNotFoundError:
+            return {'success': False, 'error': '파일을 찾을 수 없습니다. 경로를 확인해 주세요.'}
+        except PermissionError:
+            return {'success': False, 'error': '파일 접근 권한이 없습니다. 파일 권한을 확인해 주세요.'}
         except Exception as e:
-            return {'success': False, 'error': str(e)}
+            return {'success': False, 'error': f'예상치 못한 오류: {str(e)}'}
 
 def self_authorize():
     """
