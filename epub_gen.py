@@ -36,8 +36,9 @@ class EpubGenerator:
         self.book.set_title(title)
         self.book.set_language("ko")
         self.book.add_author(author)
-        
+
         self.chapters = []
+        self.cover_image = None
         # 다양한 EPUB 리더 호환을 위한 폰트 폴백 체인
         self.style = """
             @namespace epub "http://www.idpf.org/2007/ops";
@@ -56,6 +57,72 @@ class EpubGenerator:
     def extract_text(self, file_path):
         """Delegates to TextExtractor"""
         return TextExtractor.extract(file_path)
+
+    def set_cover(self, image_path):
+        """표지 이미지 설정"""
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"표지 이미지를 찾을 수 없습니다: {image_path}")
+
+        ext = os.path.splitext(image_path)[1].lower()
+        if ext not in ['.jpg', '.jpeg', '.png', '.gif']:
+            raise ValueError("지원하는 이미지 형식: JPG, PNG, GIF")
+
+        with open(image_path, 'rb') as f:
+            image_data = f.read()
+
+        # MIME 타입 결정
+        mime_types = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif'}
+        mime_type = mime_types.get(ext, 'image/jpeg')
+
+        # 표지 이미지 설정
+        self.book.set_cover(f"cover{ext}", image_data)
+        self.cover_image = image_path
+
+    def get_chapter_preview(self, raw_text, max_chapters=10):
+        """챕터 미리보기 생성 (변환 전 확인용)"""
+        raw_text = raw_text.replace("\r\n", "\n")
+        parts = self.CHAPTER_PATTERN.split(raw_text)
+
+        preview = []
+        if len(parts) <= 1:
+            # 챕터가 없으면 전체를 하나로
+            word_count = len(raw_text.split())
+            preview.append({
+                'title': 'Chapter 1',
+                'word_count': word_count,
+                'preview': raw_text[:200] + '...' if len(raw_text) > 200 else raw_text
+            })
+        else:
+            # 서문이 있으면 추가
+            if parts[0].strip():
+                content = parts[0].strip()
+                preview.append({
+                    'title': 'Introduction',
+                    'word_count': len(content.split()),
+                    'preview': content[:200] + '...' if len(content) > 200 else content
+                })
+
+            # 각 챕터 정보
+            for i in range(1, len(parts), 2):
+                if len(preview) >= max_chapters:
+                    break
+                title = parts[i].strip()
+                content = parts[i + 1].strip() if i + 1 < len(parts) else ""
+                preview.append({
+                    'title': title,
+                    'word_count': len(content.split()),
+                    'preview': content[:200] + '...' if len(content) > 200 else content
+                })
+
+        total_chapters = (len(parts) - 1) // 2 if len(parts) > 1 else 1
+        if parts[0].strip() and len(parts) > 1:
+            total_chapters += 1
+
+        return {
+            'total_chapters': total_chapters,
+            'chapters': preview,
+            'total_words': len(raw_text.split())
+        }
 
     def process_text(self, raw_text):
         # Normalize line endings
