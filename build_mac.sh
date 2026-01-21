@@ -16,6 +16,7 @@ rm -rf build dist
 # Build using PyInstaller
 pyinstaller --noconsole --windowed --clean \
     --name "EPUB-Generator" \
+    --icon "assets/icon.icns" \
     --add-data "epub_gen.py:." \
     --add-data "text_extractor.py:." \
     --hidden-import "text_extractor" \
