@@ -70,11 +70,6 @@ class EpubGenerator:
         with open(image_path, 'rb') as f:
             image_data = f.read()
 
-        # MIME 타입 결정
-        mime_types = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif'}
-        mime_type = mime_types.get(ext, 'image/jpeg')
-
-        # 표지 이미지 설정
         self.book.set_cover(f"cover{ext}", image_data)
         self.cover_image = image_path
 

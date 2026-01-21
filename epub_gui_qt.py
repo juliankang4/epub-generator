@@ -7,16 +7,15 @@ from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QLineEdit,
                              QFileDialog, QMessageBox, QProgressBar, QTabWidget,
-                             QListWidget, QListWidgetItem, QDialog, QTextEdit,
-                             QSpinBox, QComboBox, QCheckBox, QGroupBox, QScrollArea,
-                             QFrame, QSplitter)
+                             QListWidget, QListWidgetItem, QDialog, QSpinBox,
+                             QComboBox, QGroupBox, QScrollArea, QFrame)
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QSettings
-from PyQt6.QtGui import QFont, QDragEnterEvent, QDropEvent, QPixmap
+from PyQt6.QtGui import QFont
 
 from epub_gen import EpubGenerator
 from text_extractor import ExtractionError, MissingLibraryError
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 # 설정 파일 경로
 def get_config_path():
@@ -247,6 +246,16 @@ class SettingsDialog(QDialog):
         line_layout.addStretch()
         style_layout.addLayout(line_layout)
 
+        # UI 배율
+        scale_layout = QHBoxLayout()
+        scale_layout.addWidget(QLabel("UI 배율:"))
+        self.ui_scale = QComboBox()
+        self.ui_scale.addItems(["100%", "125%", "150%", "175%", "200%"])
+        self.ui_scale.setCurrentText(settings.value("ui_scale", "150%"))
+        scale_layout.addWidget(self.ui_scale)
+        scale_layout.addStretch()
+        style_layout.addLayout(scale_layout)
+
         layout.addWidget(style_group)
 
         # 메타데이터 기본값
@@ -277,6 +286,7 @@ class SettingsDialog(QDialog):
     def save_settings(self):
         self.settings.setValue("font_size", self.font_size.value())
         self.settings.setValue("line_height", self.line_height.currentText())
+        self.settings.setValue("ui_scale", self.ui_scale.currentText())
         self.settings.setValue("default_author", self.default_author.text())
         self.settings.setValue("default_publisher", self.default_publisher.text())
         self.accept()
@@ -758,11 +768,14 @@ class EpubGuiQt(QMainWindow):
         # 권한 체크
         self.check_mac_permissions()
 
-        self.setWindowTitle(f"웹소설 EPUB 생성기 v{VERSION}")
-        self.setMinimumSize(550, 650)
-
         # 설정
         self.settings = QSettings("EPUB-Generator", "EPUB-Generator")
+
+        # UI 배율 적용
+        self.apply_ui_scale()
+
+        self.setWindowTitle(f"웹소설 EPUB 생성기 v{VERSION}")
+        self.setMinimumSize(550, 650)
         self.recent_files = RecentFiles()
 
         # 스타일
@@ -893,9 +906,14 @@ class EpubGuiQt(QMainWindow):
         except Exception:
             pass
 
+    def apply_ui_scale(self):
+        # 이 메서드는 앱 시작 시 main에서 처리됨
+        pass
+
     def open_settings(self):
         dialog = SettingsDialog(self.settings, self)
-        dialog.exec()
+        if dialog.exec():
+            QMessageBox.information(self, "알림", "배율 변경은 앱을 재시작해야 적용됩니다.")
 
     def load_recent_file(self, path, title, author):
         self.tabs.setCurrentIndex(0)
@@ -906,7 +924,16 @@ class EpubGuiQt(QMainWindow):
             self.single_tab.author_input.setText(author)
 
 
+def apply_scale_before_app():
+    """앱 시작 전 UI 배율 적용"""
+    settings = QSettings("EPUB-Generator", "EPUB-Generator")
+    scale_str = settings.value("ui_scale", "150%")
+    scale = int(scale_str.replace("%", "")) / 100.0
+    os.environ["QT_SCALE_FACTOR"] = str(scale)
+
+
 if __name__ == "__main__":
+    apply_scale_before_app()
     app = QApplication(sys.argv)
     window = EpubGuiQt()
     window.show()
